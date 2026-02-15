@@ -268,12 +268,12 @@ Měli byste vidět:
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.x.x" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.x.x">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.x.x" /> <!-- Zde se nám nainstalovali nugety -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.x.x"> <!-- Zde se nám nainstalovali nugety -->
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="PropertyChanged.Fody" Version="4.x.x" />
+    <PackageReference Include="PropertyChanged.Fody" Version="4.x.x" /> <!-- Zde se nám nainstalovali nugety -->
   </ItemGroup>
 </Project>
 ```
