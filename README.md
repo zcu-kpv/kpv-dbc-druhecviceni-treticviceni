@@ -7,11 +7,12 @@
 4. [Vytvoření struktury dat - Student entita](#kapitola-4-vytvoření-struktury-dat---student-entita)
 5. [Databázový kontext - StudentContext](#kapitola-5-databázový-kontext---studentcontext)
 6. [Seedování dat](#kapitola-6-seedování-dat)
-7. [XAML a MainWindow - UI struktura](#kapitola-7-xaml-a-mainwindow---ui-struktura)
-8. [Code-behind - MainWindow.xaml.cs](#kapitola-8-code-behind---mainwindowxamlcs)
-9. [Spuštění a testování aplikace](#kapitola-9-spuštění-a-testování-aplikace)
-10. [Databázové migrace a pokročilé koncepty](#kapitola-10-databázové-migrace-a-pokročilé-koncepty)
-11. [Přílohy a užitečné odkazy](#přílohy)
+7. [Databázové migrace - Teorie a praxe](#kapitola-7-databázové-migrace---teorie-a-praxe)
+8. [XAML a MainWindow - UI struktura](#kapitola-8-xaml-a-mainwindow---ui-struktura)
+9. [Code-behind - MainWindow.xaml.cs](#kapitola-9-code-behind---mainwindowxamlcs)
+10. [Spuštění a testování aplikace](#kapitola-10-spuštění-a-testování-aplikace)
+11. [Pokročilé koncepty a best practices](#kapitola-11-pokročilé-koncepty-a-best-practices)
+12. [Přílohy a užitečné odkazy](#přílohy)
 
 ---
 
@@ -851,7 +852,7 @@ WHERE database_id = DB_ID('StudentDbDemo1')
 - Počítač B nemá databázi
 
 **Řešení:**
-- Použít **migrace** (kapitola 10)
+- Použít **migrace** (kapitola 7)
 - Automatické vytvoření databáze pomocí `EnsureCreated()` (viz níže)
 
 ### 5.9 EnsureCreatedAndSeed - Vytvoření DB
@@ -874,7 +875,7 @@ public void EnsureCreatedAndSeed()
 **⚠️ POZOR:**
 - Nepoužívejte s **migraci**!
 - `EnsureCreated()` a migrace se **nesmí kombinovat**
-- Pro produkci použijte migrace (kapitola 10)
+- Pro produkci použijte migrace (kapitola 7)
 
 **Vhodné pro:**
 - Prototypování
@@ -1128,9 +1129,1807 @@ public MainWindow()
 
 ---
 
-## Kapitola 7: XAML a MainWindow - UI struktura
+## Kapitola 7: Databázové migrace - Teorie a praxe
 
-### 7.1 Co je XAML?
+### 7.1 Co jsou databázové migrace?
+
+**Databázové migrace** jsou mechanismus pro **verzování a správu databázového schématu**. Fungují podobně jako Git pro kód, ale pro strukturu databáze.
+
+**Základní koncept:**
+- Každá změna schématu = nová migrace (soubor)
+- Migrace obsahuje **změny** a **rollback**
+- Historie všech změn databáze
+- Možnost aplikovat/vrátit změny
+
+**Proč migrace?**
+1. ✅ **Verzování** - Historie všech změn schématu
+2. ✅ **Kolaborace** - Team sdílí stejné změny
+3. ✅ **Automatizace** - Automatické upgrady při nasazení
+4. ✅ **Rollback** - Možnost vrátit změny zpět
+5. ✅ **Dokumentace** - Vidíte, jak se DB vyvíjela
+
+### 7.2 EnsureCreated vs Migrace - Zásadní rozdíl
+
+Náš projekt momentálně používá `EnsureCreated()`, což je **vhodné pouze pro prototypování**.
+
+#### **Database.EnsureCreated() - Současný přístup**
+
+```csharp
+// V MainWindow konstruktoru
+_db.EnsureCreatedAndSeed();
+
+// V StudentContext
+public void EnsureCreatedAndSeed()
+{
+    Database.EnsureCreated();  // <-- Vytvoří DB pokud neexistuje
+    SeedIfEmpty();
+}
+```
+
+**Co dělá:**
+- Zkontroluje, zda databáze existuje
+- Pokud ne, vytvoří ji podle současného stavu entit
+- **DŮLEŽITÉ:** Nevytváří migrační historii!
+
+**✅ Výhody:**
+- Jednoduché na použití
+- Rychlé pro prototypy
+- Ideální pro demo a učení
+
+**❌ Nevýhody:**
+- Žádná historie změn
+- Nemůžete **aktualizovat** existující databázi
+- Pokud změníte entitu, musíte **smazat a znovu vytvořit** DB
+- **Ne pro produkci**
+
+#### **Database.Migrate() - Produkční přístup**
+
+```csharp
+// V MainWindow konstruktoru
+_db.Database.Migrate();  // <-- Aplikuje migrace
+_db.SeedIfEmpty();
+```
+
+**Co dělá:**
+- Zkontroluje tabulku `__EFMigrationsHistory`
+- Zjistí, které migrace ještě nebyly aplikovány
+- Postupně aplikuje všechny čekající migrace
+
+**✅ Výhody:**
+- Kompletní historie změn
+- Bezpečné aktualizace existující DB
+- Team collaboration
+- Možnost rollbacku
+- **Vhodné pro produkci**
+
+**❌ Nevýhody:**
+- Komplexnější nastavení
+- Vyžaduje učení příkazů
+
+### 7.3 NuGet balíčky pro migrace - Detailní rozbor
+
+Migrace vyžadují **dva NuGet balíčky**, které jsme již nainstalovali v kapitole 3:
+
+#### **1. Microsoft.EntityFrameworkCore.SqlServer**
+
+```xml
+<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.9" />
+```
+
+**Co tento balíček obsahuje:**
+
+1. **SQL Server Database Provider**
+   - Implementuje `UseSqlServer()` metodu
+   - Generuje T-SQL specifické dotazy
+   - Podporuje SQL Server specifické funkce (IDENTITY, SEQUENCES, atd.)
+
+2. **Connection Management**
+   - Správa connection poolů
+   - Automatické otevírání/zavírání spojení
+   - Retry logika při chybách
+
+3. **Type Mapping**
+   - Mapuje C# typy na SQL Server typy:
+     - `string` → `NVARCHAR(MAX)` nebo `NVARCHAR(n)`
+     - `int` → `INT`
+     - `DateTime` → `DATETIME2`
+     - `bool` → `BIT`
+     - `decimal` → `DECIMAL(18,2)`
+
+4. **SQL Generation pro migrace**
+   - Vytváří SQL skripty z migračních příkazů
+   - Optimalizuje dotazy pro SQL Server
+
+**Proč je nutný pro migrace:**
+- Migrace potřebují vědět, jak vytvořit SQL příkazy pro konkrétní databázový systém
+- Tento provider "překládá" generické EF Core příkazy na SQL Server T-SQL
+
+**Příklad:**
+```csharp
+// EF Core příkaz v migraci
+migrationBuilder.CreateTable(
+    name: "Students",
+    columns: table => new
+    {
+        Id = table.Column<int>(nullable: false)
+            .Annotation("SqlServer:Identity", "1, 1")
+    });
+
+// Vygeneruje SQL
+CREATE TABLE [Students] (
+    [Id] INT NOT NULL IDENTITY(1,1)
+);
+```
+
+#### **2. Microsoft.EntityFrameworkCore.Tools**
+
+```xml
+<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.9">
+  <PrivateAssets>all</PrivateAssets>
+  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+</PackageReference>
+```
+
+**Co tento balíček obsahuje:**
+
+1. **Package Manager Console příkazy**
+   - `Add-Migration`
+   - `Update-Database`
+   - `Remove-Migration`
+   - `Script-Migration`
+   - `Drop-Database`
+   - `Get-DbContext`
+
+2. **Design-time služby**
+   - Analyzuje DbContext a entity
+   - Detekuje změny v modelu
+   - Generuje migrační kód
+
+3. **Scaffolding engine**
+   - Vytváří migrační soubory
+   - Generuje C# kód pro Up/Down metody
+
+**Speciální atributy v .csproj:**
+
+```xml
+<PrivateAssets>all</PrivateAssets>
+```
+- Balíček je **pouze pro vývoj** (design-time)
+- Není součástí publikované aplikace
+- Šetří velikost výsledného .exe
+
+```xml
+<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+```
+- Které assety balíčku se použijí
+- `analyzers` - Code analyzátory
+- `build` - Build-time nástroje
+
+**Proč jsou Tools oddělené od SqlServer:**
+- Tools fungují pro **všechny providery** (SQL Server, PostgreSQL, MySQL, SQLite)
+- SqlServer je specifický pro SQL Server
+
+### 7.4 Jak migrace fungují - Pod pokličkou
+
+#### **Architektura migračního systému**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  1. Vaše entity (Student.cs)                                 │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│  2. Add-Migration příkaz (PMC)                               │
+│     - EF.Tools analyzuje DbContext                           │
+│     - Porovná aktuální model se Snapshot                     │
+│     - Detekuje rozdíly (Diff)                                │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│  3. Vygeneruje migrační soubory                              │
+│     - YYYYMMDDHHMMSS_MigrationName.cs                        │
+│     - YYYYMMDDHHMMSS_MigrationName.Designer.cs               │
+│     - StudentContextModelSnapshot.cs (aktualizace)           │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│  4. Update-Database příkaz                                   │
+│     - Načte __EFMigrationsHistory z DB                       │
+│     - Zjistí, které migrace chybí                            │
+│     - Provede Up() metody chybějících migrací                │
+└───────────────┬──────────────────────────────────────────────┘
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│  5. Databáze aktualizována                                   │
+│     - Nové tabulky/sloupce vytvořeny                         │
+│     - Záznam v __EFMigrationsHistory                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### **Tabulka __EFMigrationsHistory**
+
+EF Core automaticky vytváří speciální tabulku:
+
+```sql
+CREATE TABLE [__EFMigrationsHistory] (
+    [MigrationId] NVARCHAR(150) NOT NULL PRIMARY KEY,
+    [ProductVersion] NVARCHAR(32) NOT NULL
+);
+```
+
+**Příklad obsahu:**
+```
+MigrationId                      | ProductVersion
+---------------------------------|---------------
+20260215_120000_InitialCreate    | 9.0.9
+20260216_100000_AddPhoneNumber   | 9.0.9
+20260217_143000_AddCourseTable   | 9.0.9
+```
+
+**Účel:**
+- EF Core ví, které migrace již byly aplikovány
+- Při `Update-Database` aplikuje pouze nové
+
+### 7.5 Cesta dat z kódu do databáze - Vizualizace
+
+#### **Tok dat při SaveChanges()**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. APLIKACE: Změna entity v paměti                             │
+│                                                                 │
+│     var student = _db.Students.First();                         │
+│     student.FirstName = "Karel";  // Změna property             │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  2. CHANGE TRACKER: Detekce změn                                │
+│                                                                 │
+│     EF Core si pamatuje původní hodnoty:                        │
+│     - Original: FirstName = "Jan"                               │
+│     - Current:  FirstName = "Karel"                             │
+│     → Stav entity: MODIFIED                                     │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  3. SAVECHANGES(): Příprava příkazů                             │
+│                                                                 │
+│     _db.SaveChanges();                                          │
+│                                                                 │
+│     EF Core:                                                    │
+│     - Projde všechny tracked entity                             │
+│     - Identifikuje změny (Added, Modified, Deleted)             │
+│     - Vygeneruje SQL příkazy                                    │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  4. SQL SERVER PROVIDER: Generování T-SQL                       │
+│                                                                 │
+│     UPDATE [Students]                                           │
+│     SET [FirstName] = @p0                                       │
+│     WHERE [Id] = @p1;                                           │
+│     SELECT @@ROWCOUNT;                                          │
+│                                                                 │
+│     Parametry:                                                  │
+│     @p0 = 'Karel'                                               │
+│     @p1 = 1                                                     │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  5. ADO.NET: Otevření connection                                │
+│                                                                 │
+│     Connection String:                                          │
+│     "Data Source=(localdb)\\MSSQLLocalDB;..."                   │
+│                                                                 │
+│     Connection Pool → Získá volné spojení nebo vytvoří nové     │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  6. LOCALDB: Přijetí požadavku                                  │
+│                                                                 │
+│     SQL Server LocalDB proces:                                  │
+│     C:\Users\<username>\AppData\Local\Microsoft\                │
+│       Microsoft SQL Server Local DB\Instances\MSSQLLocalDB\     │
+│                                                                 │
+│     Instance automaticky startuje (pokud nebyla spuštěná)       │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  7. DATABÁZOVÝ SOUBOR: Zápis dat                                │
+│                                                                 │
+│     Umístění:                                                   │
+│     C:\Users\<username>\StudentDbDemo1.mdf (data)               │
+│     C:\Users\<username>\StudentDbDemo1_log.ldf (log)            │
+│                                                                 │
+│     SQL Engine:                                                 │
+│     - Zamkne řádek (row lock)                                   │
+│     - Zapíše změnu do data page                                 │
+│     - Zapíše transakci do log souboru                           │
+│     - Odemkne řádek                                             │
+│                                                                 │
+└────────────────┬────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  8. NÁVRAT DO APLIKACE                                          │
+│                                                                 │
+│     SaveChanges() vrací počet změněných záznamů                 │
+│     EF Core aktualizuje Change Tracker:                         │
+│     - Entity přejdou do stavu "Unchanged"                       │
+│     - Original hodnoty = Current hodnoty                        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 7.6 Fyzické umístění databáze - Detailní průvodce
+
+#### **Kde se LocalDB databáze fyzicky nachází?**
+
+**Výchozí umístění:**
+```
+C:\Users\<VašeUživatelskeJméno>\
+├── StudentDbDemo1.mdf       # Hlavní databázový soubor (Data)
+└── StudentDbDemo1_log.ldf   # Transaction log soubor
+```
+
+**Příklad pro uživatele "student":**
+```
+C:\Users\student\StudentDbDemo1.mdf
+C:\Users\student\StudentDbDemo1_log.ldf
+```
+
+#### **Jak najít přesné umístění?**
+
+**Metoda 1: SQL dotaz**
+
+```sql
+-- Připojte se k (localdb)\MSSQLLocalDB v SSMS
+SELECT 
+    name AS 'Database Name',
+    physical_name AS 'File Path',
+    type_desc AS 'File Type',
+    size * 8 / 1024 AS 'Size (MB)'
+FROM sys.master_files 
+WHERE database_id = DB_ID('StudentDbDemo1');
+```
+
+**Výsledek:**
+```
+Database Name  | File Path                                    | File Type  | Size (MB)
+---------------|----------------------------------------------|------------|----------
+StudentDbDemo1 | C:\Users\student\StudentDbDemo1.mdf          | ROWS       | 8
+StudentDbDemo1 | C:\Users\student\StudentDbDemo1_log.ldf      | LOG        | 8
+```
+
+**Metoda 2: SSMS Properties**
+
+1. Otevřete SQL Server Management Studio (SSMS)
+2. Připojte se k `(localdb)\MSSQLLocalDB`
+3. Rozbalte **Databases**
+4. Pravý klik na **StudentDbDemo1** → **Properties**
+5. Záložka **Files**
+6. Vidíte sloupec "Path"
+
+**Metoda 3: PowerShell**
+
+```powershell
+# Najdi všechny .mdf soubory v uživatelském profilu
+Get-ChildItem -Path $env:USERPROFILE -Filter "StudentDbDemo1.mdf" -Recurse -ErrorAction SilentlyContinue
+```
+
+#### **Co obsahuje .mdf soubor?**
+
+**StudentDbDemo1.mdf** (Data File):
+- Databázové tabulky a jejich data
+- Indexy
+- Stored procedures
+- Views
+- Triggers
+- Metadata (schéma)
+
+**Struktura uvnitř .mdf:**
+
+```
+StudentDbDemo1.mdf
+├── System Tables
+│   ├── sys.tables              # Metadata o tabulkách
+│   ├── sys.columns             # Metadata o sloupcích
+│   └── __EFMigrationsHistory   # Historie migrací EF Core
+│
+└── User Tables
+    └── dbo.Students            # Naše tabulka
+        ├── Data Pages          # Aktuální data (řádky)
+        ├── Index Pages         # Indexy pro rychlé vyhledávání
+        └── Clustered Index     # Primary Key (Id)
+```
+
+**StudentDbDemo1_log.ldf** (Log File):
+- Transaction log (záznamy všech transakcí)
+- Umožňuje rollback a recovery
+- Umožňuje point-in-time restore
+
+#### **Proč se databáze nepřenese na jiný počítač?**
+
+**Scénář:**
+```
+┌──────────────────────────────────────────────────────┐
+│  POČÍTAČ A (Váš vývojový počítač)                    │
+│                                                      │
+│  Projekt:                                            │
+│  C:\Projects\WPF_Aplikace_s_db\                      │
+│  ├── Data\                                           │
+│  ├── MainWindow.xaml                                 │
+│  └── ...                                             │
+│                                                      │
+│  Databáze:                                           │
+│  C:\Users\student_a\StudentDbDemo1.mdf  ← TADY!      │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+                         │
+                         │ Git push / ZIP / USB
+                         ▼
+┌──────────────────────────────────────────────────────┐
+│  POČÍTAČ B (Jiný počítač)                            │
+│                                                      │
+│  Projekt:                                            │
+│  D:\School\WPF_Aplikace_s_db\                        │
+│  ├── Data\                                           │
+│  ├── MainWindow.xaml                                 │
+│  └── ...                    ✅ PŘENESEN               │
+│                                                      │
+│  Databáze:                                           │
+│  ??? CHYBÍ!                 ❌ NEPŘENESEN             │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+```
+
+**Důvody:**
+1. **.mdf soubor není součástí projektu**
+   - Je v user profilu (`C:\Users\...`)
+   - Projekt je v jiné složce (`C:\Projects\...`)
+   - Git/ZIP neobsahuje soubory mimo projekt
+
+2. **Connection string ukazuje na lokální instanci**
+   ```csharp
+   "Data Source=(localdb)\\MSSQLLocalDB;..."
+   ```
+   - Každý počítač má **svou vlastní** LocalDB instanci
+   - Nesdílí se mezi počítači
+
+3. **Uživatelské cesty jsou různé**
+   - Počítač A: `C:\Users\student_a\`
+   - Počítač B: `C:\Users\student_b\`
+
+### 7.7 Řešení problému přenositelnosti
+
+#### **Řešení 1: Migrace (DOPORUČENO pro další cvičení)**
+
+```csharp
+// Místo EnsureCreated()
+_db.Database.Migrate();
+```
+
+**Postup:**
+1. Vytvoříte migrace na počítači A
+2. Migrace commitnete do Gitu (jsou součástí projektu!)
+3. Na počítači B stáhnete projekt včetně migrací
+4. Spustíte aplikaci → `Migrate()` vytvoří DB automaticky
+
+**Struktura projektu s migracemi:**
+```
+WPF_Aplikace_s_db/
+├── Migrations/                          ← V Gitu!
+│   ├── 20260215_InitialCreate.cs
+│   ├── 20260216_AddPhoneNumber.cs
+│   └── StudentContextModelSnapshot.cs
+├── Data/
+└── ...
+```
+
+#### **Řešení 2: EnsureCreated() (současný přístup)**
+
+```csharp
+_db.EnsureCreatedAndSeed();
+```
+
+**Chování na novém počítači:**
+1. Aplikace se spustí
+2. `EnsureCreated()` zjistí, že DB neexistuje
+3. **Automaticky vytvoří novou databázi**
+4. `SeedIfEmpty()` naplní testovacími daty
+
+**⚠️ DŮLEŽITÉ:**
+- Funguje **pouze pro prázdné/nové databáze**
+- Pokud DB existuje, ale má **staré schéma**, EnsureCreated() **nedělá nic**!
+- Museli byste **ručně smazat** starou DB
+
+#### **Řešení 3: Database Backup/Restore**
+
+**Export databáze:**
+```sql
+BACKUP DATABASE StudentDbDemo1
+TO DISK = 'C:\Backups\StudentDbDemo1.bak'
+WITH FORMAT, INIT, NAME = 'Full Backup';
+```
+
+**Import na jiném počítači:**
+```sql
+RESTORE DATABASE StudentDbDemo1
+FROM DISK = 'C:\Backups\StudentDbDemo1.bak'
+WITH MOVE 'StudentDbDemo1' TO 'C:\Users\new_user\StudentDbDemo1.mdf',
+     MOVE 'StudentDbDemo1_log' TO 'C:\Users\new_user\StudentDbDemo1_log.ldf';
+```
+
+### 7.8 Migrační příkazy - Kompletní reference
+
+#### **Package Manager Console (PMC) příkazy**
+
+Otevřete **Package Manager Console**:
+- Menu: **Tools → NuGet Package Manager → Package Manager Console**
+
+---
+
+#### **1. Add-Migration - Vytvoření migrace**
+
+```powershell
+Add-Migration <MigrationName>
+```
+
+**Co dělá:**
+1. Analyzuje aktuální DbContext a entity
+2. Porovná s posledním snapshot
+3. Detekuje změny (nové tabulky, sloupce, změny typů, atd.)
+4. Vygeneruje tři soubory:
+   - `YYYYMMDDHHMMSS_<MigrationName>.cs` - Up/Down metody
+   - `YYYYMMDDHHMMSS_<MigrationName>.Designer.cs` - Metadata
+   - `StudentContextModelSnapshot.cs` - Aktuální snapshot (update)
+
+**Příklady:**
+```powershell
+Add-Migration InitialCreate
+Add-Migration AddPhoneNumberToStudent
+Add-Migration CreateCoursesTable
+Add-Migration RenameEmailColumn
+```
+
+**⚠️ Chyby:**
+```powershell
+# Špatně - mezery bez uvozovek
+Add-Migration Add Phone Number
+
+# Správně - bez mezer nebo s uvozovkami
+Add-Migration AddPhoneNumber
+Add-Migration "Add Phone Number"
+```
+
+**Volitelné parametry:**
+```powershell
+# Specifikovat konkrétní DbContext (pokud máte více)
+Add-Migration InitialCreate -Context StudentContext
+
+# Specifikovat složku pro migrace
+Add-Migration InitialCreate -OutputDir Data/Migrations
+```
+
+---
+
+#### **2. Update-Database - Aplikace migrací**
+
+```powershell
+Update-Database
+```
+
+**Co dělá:**
+1. Připojí se k databázi (connection string z OnConfiguring)
+2. Zkontroluje tabulku `__EFMigrationsHistory`
+3. Zjistí, které migrace ještě nebyly aplikovány
+4. Provede `Up()` metody všech chybějících migrací **postupně**
+5. Po každé migraci zapíše záznam do `__EFMigrationsHistory`
+
+**Příklad - první spuštění:**
+```
+Migrace v projektu:
+- 20260215_InitialCreate
+- 20260216_AddPhoneNumber
+
+__EFMigrationsHistory je prázdná
+
+→ Aplikuje InitialCreate (vytvoří tabulku Students)
+→ Aplikuje AddPhoneNumber (přidá sloupec PhoneNumber)
+```
+
+**Volitelné parametry:**
+```powershell
+# Vrátit na konkrétní migraci
+Update-Database -Migration AddPhoneNumber
+
+# Vrátit na začátek (smaže všechny tabulky)
+Update-Database -Migration 0
+
+# Specifikovat DbContext
+Update-Database -Context StudentContext
+
+# Zobrazit SQL bez aplikace
+Update-Database -Script
+```
+
+---
+
+#### **3. Remove-Migration - Odstranění migrace**
+
+```powershell
+Remove-Migration
+```
+
+**Co dělá:**
+- Smaže **poslední** vytvořenou migraci
+- Obnoví předchozí snapshot
+
+**⚠️ FUNGUJE POUZE:**
+- Pokud migrace **nebyla aplikována** (`Update-Database`)
+- Jinak: Chyba `The migration '...' has already been applied to the database.`
+
+**Řešení, pokud byla aplikována:**
+```powershell
+# 1. Vrátit DB na předchozí stav
+Update-Database -Migration PreviousMigration
+
+# 2. Teď můžete odstranit
+Remove-Migration
+```
+
+---
+
+#### **4. Script-Migration - Generování SQL skriptu**
+
+```powershell
+Script-Migration
+```
+
+**Co dělá:**
+- Vygeneruje **SQL skript** pro všechny migrace
+- Neaplikuje na databázi (pouze preview)
+
+**Příklady:**
+```powershell
+# Skript pro všechny migrace
+Script-Migration
+
+# Skript od konkrétní migrace do jiné
+Script-Migration -From InitialCreate -To AddPhoneNumber
+
+# Skript jen pro jednu migraci
+Script-Migration -From AddPhoneNumber -To AddPhoneNumber
+
+# Uložit do souboru
+Script-Migration -Output C:\migration.sql
+
+# Idempotentní skript (kontroluje, zda už není aplikováno)
+Script-Migration -Idempotent
+```
+
+**Výstup:**
+```sql
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260215_InitialCreate')
+BEGIN
+    CREATE TABLE [Students] (
+        [Id] INT NOT NULL IDENTITY(1,1),
+        [FirstName] NVARCHAR(30) NOT NULL,
+        ...
+    );
+    
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260215_InitialCreate', N'9.0.9');
+END;
+```
+
+**Použití:**
+- Preview změn před aplikací
+- Ruční aplikace na produkčním serveru
+- Code review databázových změn
+
+---
+
+#### **5. Drop-Database - Smazání databáze**
+
+```powershell
+Drop-Database
+```
+
+**Co dělá:**
+- **Kompletně smaže** databázi
+- Ekvivalent: `DROP DATABASE StudentDbDemo1`
+
+**⚠️ POZOR:**
+- Nevratná operace!
+- Přijdete o všechna data!
+
+**Použití:**
+```powershell
+# Smaže databázi
+Drop-Database
+
+# Poté vytvoříte čistou DB
+Update-Database
+```
+
+---
+
+#### **6. Get-DbContext - Seznam DbContextů**
+
+```powershell
+Get-DbContext
+```
+
+**Co dělá:**
+- Zobrazí všechny DbContext třídy v projektu
+- Užitečné pokud máte více kontextů
+
+**Výstup:**
+```
+WPF_Aplikace_s_db.Data.StudentContext
+```
+
+---
+
+#### **7. Get-Migration - Seznam migrací**
+
+```powershell
+Get-Migration
+```
+
+**Co dělá:**
+- Zobrazí všechny migrace v projektu
+- **Neověřuje**, zda byly aplikovány na DB
+
+**Výstup:**
+```
+20260215120000_InitialCreate
+20260216100000_AddPhoneNumber
+20260217143000_AddCourseTable
+```
+
+---
+
+### 7.9 .NET CLI příkazy - Alternativa k PMC
+
+Pokud preferujete **Command Line**, můžete použít .NET CLI místo Package Manager Console.
+
+#### **Instalace EF Core tools**
+
+```bash
+dotnet tool install --global dotnet-ef
+```
+
+**Ověření instalace:**
+```bash
+dotnet ef --version
+```
+
+#### **Migrační příkazy v .NET CLI**
+
+| PMC příkaz | .NET CLI příkaz |
+|------------|-----------------|
+| `Add-Migration Name` | `dotnet ef migrations add Name` |
+| `Update-Database` | `dotnet ef database update` |
+| `Remove-Migration` | `dotnet ef migrations remove` |
+| `Script-Migration` | `dotnet ef migrations script` |
+| `Drop-Database` | `dotnet ef database drop` |
+| `Get-DbContext` | `dotnet ef dbcontext list` |
+
+**Příklady:**
+```bash
+# Vytvoření migrace
+dotnet ef migrations add InitialCreate
+
+# Aplikace migrací
+dotnet ef database update
+
+# Generování SQL skriptu
+dotnet ef migrations script -o migration.sql
+
+# Odstranění migrace
+dotnet ef migrations remove
+
+# Smazání databáze
+dotnet ef database drop
+```
+
+### 7.10 Praktický workflow - Krok za krokem
+
+#### **Scénář: Přidání nového sloupce PhoneNumber**
+
+**Krok 1: Upravit entitu**
+
+```csharp
+// Data/Student.cs
+public class Student
+{
+    // ... existující properties
+    
+    [Phone]
+    [StringLength(20)]
+    public string PhoneNumber { get; set; } = string.Empty;  // ← NOVÝ SLOUPEC
+}
+```
+
+**Krok 2: Vytvořit migraci**
+
+```powershell
+Add-Migration AddPhoneNumberToStudent
+```
+
+**Výstup v konzoli:**
+```
+Build started...
+Build succeeded.
+To undo this action, use Remove-Migration.
+```
+
+**Vytvořené soubory:**
+```
+Migrations/
+└── 20260215143000_AddPhoneNumberToStudent.cs
+└── 20260215143000_AddPhoneNumberToStudent.Designer.cs
+```
+
+**Krok 3: Prohlédnout vygenerovaný kód**
+
+```csharp
+// Migrations/20260215143000_AddPhoneNumberToStudent.cs
+public partial class AddPhoneNumberToStudent : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.AddColumn<string>(
+            name: "PhoneNumber",
+            table: "Students",
+            type: "nvarchar(20)",
+            maxLength: 20,
+            nullable: false,
+            defaultValue: "");
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropColumn(
+            name: "PhoneNumber",
+            table: "Students");
+    }
+}
+```
+
+**Krok 4: Aplikovat migraci**
+
+```powershell
+Update-Database
+```
+
+**Výstup:**
+```
+Build started...
+Build succeeded.
+Applying migration '20260215143000_AddPhoneNumberToStudent'.
+Done.
+```
+
+**Co se stalo v databázi:**
+
+```sql
+-- 1. Přidán sloupec
+ALTER TABLE [Students] ADD [PhoneNumber] NVARCHAR(20) NOT NULL DEFAULT N'';
+
+-- 2. Záznam v historii
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20260215143000_AddPhoneNumberToStudent', N'9.0.9');
+```
+
+**Krok 5: Ověření v SSMS**
+
+```sql
+-- Zkontrolovat strukturu tabulky
+EXEC sp_help 'Students';
+
+-- Nebo
+SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Students';
+```
+
+**Výsledek:**
+```
+COLUMN_NAME  | DATA_TYPE | CHARACTER_MAXIMUM_LENGTH | IS_NULLABLE
+-------------|-----------|--------------------------|------------
+Id           | int       | NULL                     | NO
+FirstName    | nvarchar  | 30                       | NO
+LastName     | nvarchar  | 30                       | NO
+Year         | int       | NULL                     | NO
+Email        | nvarchar  | 50                       | NO
+CreatedAt    | datetime2 | NULL                     | NO
+PhoneNumber  | nvarchar  | 20                       | NO          ← NOVÝ!
+```
+
+### 7.11 Rollback migrace - Vrácení změn
+
+#### **Vrátit poslední migraci**
+
+```powershell
+Update-Database -Migration PreviousMigrationName
+```
+
+**Příklad:**
+```powershell
+# Aktuální stav: InitialCreate → AddPhoneNumber → AddCourseTable
+
+# Vrátit na AddPhoneNumber (smaže CourseTable)
+Update-Database -Migration AddPhoneNumber
+```
+
+**Co se stane:**
+- EF Core zavolá `Down()` metodu migrace `AddCourseTable`
+- Smaže tabulku/sloupec
+- Odstraní záznam z `__EFMigrationsHistory`
+
+#### **Vrátit na úplný začátek**
+
+```powershell
+Update-Database -Migration 0
+```
+
+**Co se stane:**
+- Zavolá `Down()` metody **všech** migrací
+- Databáze bude **prázdná** (jen systémové tabulky)
+
+### 7.12 Běžné chyby při migraci
+
+#### **Chyba 1: "Build failed"**
+
+```
+Build started...
+Build FAILED.
+```
+
+**Příčina:**
+- Syntaktická chyba v C# kódu
+- Chybějící using direktivy
+
+**Řešení:**
+- Opravte chyby v kódu
+- Build solution (Ctrl + Shift + B)
+- Zkuste migraci znovu
+
+---
+
+#### **Chyba 2: "No DbContext was found"**
+
+```
+No DbContext was found in assembly 'WPF_Aplikace_s_db'.
+```
+
+**Příčina:**
+- DbContext třída není public
+- DbContext není v projektu
+
+**Řešení:**
+```csharp
+// Ujistěte se, že třída je public
+public class StudentContext : DbContext  // ← MUSÍ být public!
+```
+
+---
+
+#### **Chyba 3: "The migration '...' has already been applied"**
+
+```
+The migration '20260215_AddPhoneNumber' has already been applied to the database.
+Remove-Migration can be used to remove the last migration.
+```
+
+**Příčina:**
+- Snažíte se odstranit migraci, která již byla aplikována
+
+**Řešení:**
+```powershell
+# 1. Vrátit DB na předchozí stav
+Update-Database -Migration PreviousMigration
+
+# 2. Teď můžete odstranit
+Remove-Migration
+```
+
+---
+
+#### **Chyba 4: "A network-related or instance-specific error"**
+
+```
+A network-related or instance-specific error occurred while establishing a connection to SQL Server.
+```
+
+**Příčina:**
+- LocalDB není spuštěno
+- Špatný connection string
+
+**Řešení:**
+```bash
+# Zkontrolovat stav LocalDB
+sqllocaldb info
+
+# Spustit instanci
+sqllocaldb start MSSQLLocalDB
+
+# Zkontrolovat běžící instance
+sqllocaldb info MSSQLLocalDB
+```
+
+---
+
+#### **Chyba 5: "Cannot use EnsureCreated with migrations"**
+
+```
+The database has been created using EnsureCreated().
+Migrations cannot be used when the database was created this way.
+```
+
+**Příčina:**
+- Databáze byla vytvořena pomocí `EnsureCreated()`
+- **EnsureCreated a migrace se vylučují!**
+
+**Řešení:**
+```powershell
+# 1. Smazat databázi
+Drop-Database
+
+# 2. Vytvořit pomocí migrací
+Update-Database
+```
+
+### 7.13 Pokročilé migrace - Příklady
+
+#### **Přejmenování sloupce**
+
+```powershell
+Add-Migration RenameEmailToEmailAddress
+```
+
+**Vygenerovaná migrace:**
+```csharp
+protected override void Up(MigrationBuilder migrationBuilder)
+{
+    migrationBuilder.RenameColumn(
+        name: "Email",
+        table: "Students",
+        newName: "EmailAddress");
+}
+```
+
+#### **Přidání indexu**
+
+```csharp
+// V Student.cs
+[Index(nameof(Email), IsUnique = true)]
+public class Student
+{
+    // ...
+}
+```
+
+```powershell
+Add-Migration AddUniqueIndexOnEmail
+```
+
+**Vygenerované SQL:**
+```sql
+CREATE UNIQUE INDEX [IX_Students_Email] ON [Students] ([Email]);
+```
+
+#### **Změna typu sloupce**
+
+```csharp
+// Původně
+public int Year { get; set; }
+
+// Změna na
+public string Year { get; set; }
+```
+
+```powershell
+Add-Migration ChangeYearToString
+```
+
+**⚠️ POZOR:**
+- Změna typu může způsobit **ztrátu dat**!
+- EF Core varuje před nebezpečnými operacemi
+
+#### **Přidání foreign key vztahu**
+
+```csharp
+public class Enrollment
+{
+    public int Id { get; set; }
+    
+    public int StudentId { get; set; }      // Foreign key
+    public Student Student { get; set; }    // Navigation property
+}
+```
+
+```powershell
+Add-Migration AddEnrollmentTable
+```
+
+**Vygenerované SQL:**
+```sql
+CREATE TABLE [Enrollments] (
+    [Id] INT NOT NULL IDENTITY(1,1),
+    [StudentId] INT NOT NULL,
+    CONSTRAINT [PK_Enrollments] PRIMARY KEY ([Id]),
+    CONSTRAINT [FK_Enrollments_Students] FOREIGN KEY ([StudentId]) 
+        REFERENCES [Students] ([Id]) ON DELETE CASCADE
+);
+```
+
+### 7.14 Data seeding v migraci
+
+#### **Přidání seed dat přímo v migraci**
+
+```csharp
+protected override void Up(MigrationBuilder migrationBuilder)
+{
+    migrationBuilder.CreateTable(/* ... */);
+    
+    // Seed data
+    migrationBuilder.InsertData(
+        table: "Students",
+        columns: new[] { "Id", "FirstName", "LastName", "Year", "Email", "CreatedAt" },
+        values: new object[,]
+        {
+            { 1, "Jan", "Novák", 1, "jan.novak@example.com", new DateTime(2026, 1, 1) },
+            { 2, "Petr", "Svoboda", 2, "petr.svoboda@example.com", new DateTime(2026, 1, 1) }
+        });
+}
+```
+
+**Výhody:**
+- Data jsou součástí migrace
+- Automaticky se aplikují s migrací
+- Verzované v Gitu
+
+#### **HasData v OnModelCreating**
+
+```csharp
+// StudentContext.cs
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Student>().HasData(
+        new Student { Id = 1, FirstName = "Jan", LastName = "Novák", Year = 1, Email = "jan@example.com", CreatedAt = DateTime.UtcNow },
+        new Student { Id = 2, FirstName = "Petr", LastName = "Svoboda", Year = 2, Email = "petr@example.com", CreatedAt = DateTime.UtcNow }
+    );
+}
+```
+
+**Po Add-Migration:**
+- EF Core automaticky vygeneruje `InsertData` příkazy v migraci
+
+**⚠️ DŮLEŽITÉ:**
+- Musíte **ručně přiřadit Id** (není auto-generated)
+
+### 7.15 Migrace v týmovém prostředí
+
+#### **Workflow při spolupráci**
+
+**Developer A:**
+```powershell
+# 1. Změní model (přidá sloupec)
+# 2. Vytvoří migraci
+Add-Migration AddPhoneNumber
+
+# 3. Commitne do Gitu
+git add .
+git commit -m "Add PhoneNumber column"
+git push
+```
+
+**Developer B:**
+```bash
+# 1. Stáhne změny
+git pull
+
+# 2. Aplikuje migrace
+Update-Database
+```
+
+**Výsledek:**
+- Developer B má stejnou strukturu DB jako Developer A
+- Žádné manuální SQL skripty!
+
+#### **Řešení konfliktů migrací**
+
+**Problém:**
+- Developer A vytvoří migraci `20260215_AddPhoneNumber`
+- Developer B vytvoří migraci `20260215_AddAddress` (stejný čas!)
+- Git merge conflict
+
+**Řešení:**
+```powershell
+# 1. Odstranit lokální migraci
+Remove-Migration
+
+# 2. Stáhnout změny
+git pull
+
+# 3. Aplikovat cizí migrace
+Update-Database
+
+# 4. Vytvořit svou migraci znovu
+Add-Migration AddAddress
+```
+
+### 7.16 Connection String a cesta dat - Kompletní tok
+
+#### **Jak data putují z aplikace do .mdf souboru**
+
+**1. Connection String v kódu:**
+
+```csharp
+// StudentContext.cs
+optionsBuilder.UseSqlServer(
+    "Data Source=(localdb)\\MSSQLLocalDB;" +      // ← Kam se připojit
+    "Initial Catalog=StudentDbDemo1;" +            // ← Jaká databáze
+    "Integrated Security=True;" +                  // ← Windows autentizace
+    "TrustServerCertificate=True");                // ← Důvěřuj certifikátu
+```
+
+**2. První připojení - co se stane:**
+
+```
+Aplikace                                LocalDB Instance
+   │                                           │
+   │  1. Požadavek na připojení                │
+   │─────────────────────────────────────────→│
+   │     Connection String                     │
+   │                                           │
+   │                                      2. Zkontroluje, zda    
+   │                                         instance běží       
+   │                                           │
+   │                                      3. Pokud ne, STARTUJE  
+   │                                         sqlservr.exe proces 
+   │                                           │
+   │                                      4. Načte databázový    
+   │                                         soubor .mdf         
+   │                                           │
+   │                                      5. Otevře connection   
+   │  6. Connection úspěšné                    │
+   │←─────────────────────────────────────────│
+   │                                           │
+```
+
+**3. Databázový soubor - fyzická cesta:**
+
+```
+Connection String říká:
+"Data Source=(localdb)\MSSQLLocalDB"
+      ↓
+LocalDB Instance hledá databázi:
+"Initial Catalog=StudentDbDemo1"
+      ↓
+Databáze je v:
+C:\Users\<username>\StudentDbDemo1.mdf
+
+Pokud neexistuje, vytvoří se zde:
+C:\Users\<username>\
+```
+
+**4. Zápis dat - podrobný proces:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  APLIKACE: _db.Students.Add(new Student { ... });            │
+│            _db.SaveChanges();                                │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  EF CORE CHANGE TRACKER:                                     │
+│    - Detekuje změny (Added, Modified, Deleted)               │
+│    - Připraví SQL příkazy                                    │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  SQL SERVER PROVIDER (Microsoft.EF.SqlServer):               │
+│    - Přeloží na T-SQL                                        │
+│    - Vytvoří parametrizovaný dotaz                           │
+│                                                              │
+│    INSERT INTO [Students] ([FirstName], [LastName], ...)     │
+│    VALUES (@p0, @p1, ...);                                   │
+│    SELECT [Id] FROM [Students] WHERE @@ROWCOUNT = 1          │
+│      AND [Id] = SCOPE_IDENTITY();                            │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  ADO.NET (System.Data.SqlClient):                            │
+│    - Otevře connection (nebo použije z poolu)                │
+│    - Odešle SQL příkaz                                       │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  LOCALDB PROCES (sqlservr.exe):                              │
+│    - Přijme příkaz                                           │
+│    - Začne transakci                                         │
+│    - Zamkne tabulku/řádek                                    │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  BUFFER POOL (RAM):                                          │
+│    - Načte data page z .mdf souboru do paměti                │
+│    - Provede změnu v paměti                                  │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  TRANSACTION LOG (.ldf soubor):                              │
+│                                                              │
+│    StudentDbDemo1_log.ldf                                    │
+│    ├─ Log Record: INSERT Student (FirstName='Jan')           │
+│    ├─ LSN (Log Sequence Number): 000000123                   │
+│    └─ Transaction ID: TX_456                                 │
+│                                                              │
+│    Zápis je FIRST (Write-Ahead Logging principle)            │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  DATA FILE (.mdf soubor):                                    │
+│                                                              │
+│    StudentDbDemo1.mdf                                        │
+│    └─ Table: dbo.Students                                    │
+│       └─ Data Page 1:96 (například)                          │
+│          ├─ Row 1: [1, "Jan", "Novák", ...]                  │
+│          ├─ Row 2: [2, "Petr", "Svoboda", ...]               │
+│          └─ Row 3: [3, "Karel", "Černý", ...]  ← NOVÝ ŘÁDEK  │
+│                                                              │
+│    Změněná stránka se označí jako "dirty"                    │
+│    Checkpoint proces ji později zapíše na disk               │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  COMMIT TRANSAKCE:                                           │
+│    - Transakce se označí jako committed v .ldf               │
+│    - Odemkne zámky                                           │
+│    - Vrátí vygenerované Id do aplikace                       │
+└───────────────────┬──────────────────────────────────────────┘
+                    │
+                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  NÁVRAT DO APLIKACE:                                         │
+│    - SaveChanges() vrací počet změněných záznamů (1)         │
+│    - student.Id je naplněno databází (např. 11)              │
+│    - Change Tracker aktualizuje stav na "Unchanged"          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 7.17 Detailní popis datových souborů
+
+#### **.mdf soubor (Master Data File)**
+
+**Obsah:**
+```
+StudentDbDemo1.mdf (8 MB po vytvoření)
+│
+├── File Header (první 8KB stránka)
+│   ├── Database ID
+│   ├── Verze SQL Serveru
+│   └── Last backup informace
+│
+├── System Pages
+│   ├── Boot Page (stránka 9)
+│   ├── File Header Pages
+│   └── PFS (Page Free Space) pages
+│
+├── System Tables (alokované SQL Serverem)
+│   ├── sys.tables             # Metadata o tabulkách
+│   ├── sys.columns            # Metadata o sloupcích
+│   ├── sys.indexes            # Indexy
+│   ├── sys.foreign_keys       # Cizí klíče
+│   └── __EFMigrationsHistory  # EF Core migrace historie
+│
+└── User Tables
+    └── dbo.Students (naše tabulka)
+        ├── Data Pages (8KB každá)
+        │   ├── Page Header (96 bytes)
+        │   ├── Row Offsets Array
+        │   └── Actual Rows (data studentů)
+        │       ├── Row 1: [1|Jan|Novák|1|jan@...|2026-01-01]
+        │       ├── Row 2: [2|Petr|Svoboda|2|petr@...|2026-01-01]
+        │       └── ...
+        │
+        └── Index Pages (Clustered Index na Id)
+            └── B-Tree structure pro rychlé vyhledávání
+```
+
+**Page structure (8KB stránka):**
+```
+┌────────────────────────────────────────────────┐
+│ Page Header (96 bytes)                         │
+│  - Page ID                                     │
+│  - Page Type                                   │
+│  - Free space                                  │
+│  - Previous/Next page pointers                 │
+├────────────────────────────────────────────────┤
+│ Row Data (až ~8000 bytes)                      │
+│  Row 1: [1|Jan|Novák|1|jan@example.com|...]    │
+│  Row 2: [2|Petr|Svoboda|2|petr@example.com|...]│
+│  Row 3: ...                                    │
+├────────────────────────────────────────────────┤
+│ Row Offset Array                               │
+│  [Row3_offset, Row2_offset, Row1_offset]       │
+└────────────────────────────────────────────────┘
+```
+
+#### **.ldf soubor (Log Data File)**
+
+**Obsah:**
+```
+StudentDbDemo1_log.ldf (8 MB po vytvoření)
+│
+└── Transaction Log Records (zápisy transakcí)
+    ├── Log Record 1: BEGIN TRANSACTION
+    ├── Log Record 2: INSERT Students (Jan Novák)
+    ├── Log Record 3: COMMIT TRANSACTION
+    ├── Log Record 4: BEGIN TRANSACTION
+    ├── Log Record 5: UPDATE Students SET FirstName='Petr' WHERE Id=1
+    └── Log Record 6: COMMIT TRANSACTION
+```
+
+**Každý log záznam obsahuje:**
+- **LSN** (Log Sequence Number) - unikátní číslo
+- **Transaction ID**
+- **Operace** (INSERT, UPDATE, DELETE)
+- **Data** (před/po změně)
+- **Timestamp**
+
+**Účel:**
+1. **Crash recovery** - Obnova po pádu
+2. **Rollback** - Vrácení transakce
+3. **Point-in-time restore** - Obnova k danému času
+4. **Replication** - Replikace změn
+
+### 7.18 Migrace v praxi - Kompletní příklad
+
+#### **Scénář: Rozšíření aplikace o kurzy**
+
+**Krok 1: Vytvořit novou entitu Course**
+
+```csharp
+// Data/Course.cs
+using System.ComponentModel.DataAnnotations;
+
+namespace WPF_Aplikace_s_db.Data
+{
+    public class Course
+    {
+        [Key]
+        public int Id { get; set; }
+        
+        [Required]
+        [StringLength(100)]
+        public string Name { get; set; } = string.Empty;
+        
+        [StringLength(20)]
+        public string Code { get; set; } = string.Empty;
+        
+        public int Credits { get; set; }
+    }
+}
+```
+
+**Krok 2: Přidat do StudentContext**
+
+```csharp
+// StudentContext.cs
+public class StudentContext : DbContext
+{
+    public DbSet<Student> Students => Set<Student>();
+    public DbSet<Course> Courses => Set<Course>();  // ← NOVÝ DbSet
+    
+    // ...
+}
+```
+
+**Krok 3: Vytvořit migraci**
+
+```powershell
+Add-Migration CreateCoursesTable
+```
+
+**Vygenerovaná migrace:**
+
+```csharp
+public partial class CreateCoursesTable : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.CreateTable(
+            name: "Courses",
+            columns: table => new
+            {
+                Id = table.Column<int>(nullable: false)
+                    .Annotation("SqlServer:Identity", "1, 1"),
+                Name = table.Column<string>(maxLength: 100, nullable: false),
+                Code = table.Column<string>(maxLength: 20, nullable: false),
+                Credits = table.Column<int>(nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_Courses", x => x.Id);
+            });
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropTable(name: "Courses");
+    }
+}
+```
+
+**Krok 4: Aplikovat migraci**
+
+```powershell
+Update-Database
+```
+
+**Výstup v konzoli:**
+```
+Build started...
+Build succeeded.
+Applying migration '20260215143000_CreateCoursesTable'.
+Done.
+```
+
+**Ověření v databázi:**
+```sql
+SELECT * FROM INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_NAME = 'Courses';
+```
+
+### 7.19 Migrace pro přechod z EnsureCreated
+
+**Současný stav projektu:**
+- Používá `Database.EnsureCreated()`
+- **Nemá** migrační historii
+- **Nemá** složku `Migrations/`
+
+**Jak přejít na migrace?**
+
+#### **Varianta A: Čistý start (DOPORUČENO pro výuku)**
+
+**Krok 1: Smazat databázi**
+
+```powershell
+# V Package Manager Console
+Drop-Database
+```
+
+Nebo v SSMS:
+```sql
+USE master;
+DROP DATABASE StudentDbDemo1;
+```
+
+**Krok 2: Upravit MainWindow konstruktor**
+
+```csharp
+// MainWindow.xaml.cs
+public MainWindow()
+{
+    InitializeComponent();
+    
+    // ZAKOMENTOVAT/SMAZAT:
+    // _db.EnsureCreatedAndSeed();
+    
+    // PŘIDAT:
+    _db.Database.Migrate();      // Aplikuje migrace
+    _db.SeedIfEmpty();           // Seed zůstává
+    
+    // ... zbytek kódu
+}
+```
+
+**Krok 3: Vytvořit první migraci**
+
+```powershell
+Add-Migration InitialCreate
+```
+
+**Krok 4: Aplikovat migraci**
+
+```powershell
+Update-Database
+```
+
+**Výsledek:**
+- ✅ Databáze vytvořena pomocí migrací
+- ✅ Máte složku `Migrations/`
+- ✅ Historie verzování funguje
+
+#### **Varianta B: Zachovat existující data**
+
+**Pokud chcete zachovat data z existující DB:**
+
+**Krok 1: Exportovat data**
+
+```sql
+-- V SSMS
+SELECT * FROM Students;
+-- Pravý klik na výsledky → Save Results As → students_backup.csv
+```
+
+**Krok 2: Smazat DB a vytvořit s migraci**
+
+```powershell
+Drop-Database
+Add-Migration InitialCreate
+Update-Database
+```
+
+**Krok 3: Importovat data zpět**
+
+```csharp
+// Jednorázový import v MainWindow konstruktoru
+ImportFromCsv("students_backup.csv");
+```
+
+### 7.20 Tipy a best practices pro migrace
+
+#### ✅ DOPORUČENÉ POSTUPY
+
+**1. Popisné názvy migrací**
+```powershell
+✅ Add-Migration AddPhoneNumberToStudent
+✅ Add-Migration CreateCoursesTable
+✅ Add-Migration RenameEmailColumn
+
+❌ Add-Migration Migration1
+❌ Add-Migration Update
+❌ Add-Migration Fix
+```
+
+**2. Časté commitování**
+```bash
+# Po každé migraci
+git add Migrations/
+git commit -m "Add migration: AddPhoneNumber"
+```
+
+**3. Review vygenerovaného kódu**
+- Vždy zkontrolujte `Up()` a `Down()` metody
+- Někdy EF Core generuje suboptimální SQL
+
+**4. Testování rollbacku**
+```powershell
+# Aplikovat migraci
+Update-Database
+
+# Otestovat rollback
+Update-Database -Migration PreviousMigration
+
+# Aplikovat znovu
+Update-Database
+```
+
+**5. Backup před aplikací migrace na produkci**
+```sql
+BACKUP DATABASE ProductionDb
+TO DISK = 'C:\Backups\before_migration.bak';
+```
+
+#### ❌ CO NEDĚLAT
+
+**1. Editovat již aplikované migrace**
+```csharp
+// NIKDY needitujte migraci, která již byla aplikována!
+// Místo toho vytvořte novou migraci s opravou
+```
+
+**2. Mazat migrace z historie**
+```bash
+# ❌ NIKDY
+git rm Migrations/20260215_InitialCreate.cs
+```
+
+**3. Kombinovat EnsureCreated a Migrate**
+```csharp
+// ❌ NEFUNGUJE
+Database.EnsureCreated();
+Database.Migrate();
+```
+
+**4. Commitovat bez testování**
+```bash
+# ❌ ŠPATNĚ
+Add-Migration AddColumn
+git commit  # Bez testování!
+
+# ✅ SPRÁVNĚ
+Add-Migration AddColumn
+Update-Database  # Otestovat lokálně
+# Ověřit, že funguje
+git commit
+```
+
+### 📋 Shrnutí kapitoly 7
+- Migrace verzují databázové schéma (jako Git pro DB)
+- `Add-Migration` vytvoří migraci, `Update-Database` ji aplikuje
+- EF.Core.SqlServer provider generuje T-SQL příkazy
+- EF.Core.Tools poskytuje PMC příkazy (Add-Migration, atd.)
+- Data putují: Aplikace → EF Core → ADO.NET → LocalDB → .mdf soubor
+- LocalDB ukládá data do `C:\Users\<username>\*.mdf`
+- `__EFMigrationsHistory` trackuje aplikované migrace
+- EnsureCreated a Migrate se vylučují
+- Pro produkci vždy používejte migrace
+
+### 💡 Cheat Sheet - Migrační příkazy
+
+#### **Package Manager Console (PMC)**
+| Příkaz | Účel | Příklad |
+|--------|------|---------|
+| `Add-Migration <Name>` | Vytvoří novou migraci | `Add-Migration InitialCreate` |
+| `Update-Database` | Aplikuje všechny čekající migrace | `Update-Database` |
+| `Update-Database -Migration <Name>` | Aplikuje/vrátí na konkrétní migraci | `Update-Database -Migration AddPhone` |
+| `Remove-Migration` | Odstraní poslední migraci | `Remove-Migration` |
+| `Script-Migration` | Vygeneruje SQL skript | `Script-Migration -Output script.sql` |
+| `Drop-Database` | Smaže databázi | `Drop-Database` |
+| `Get-Migration` | Seznam migrací | `Get-Migration` |
+| `Get-DbContext` | Seznam DbContext tříd | `Get-DbContext` |
+
+#### **.NET CLI**
+| Příkaz | Účel |
+|--------|------|
+| `dotnet ef migrations add <Name>` | Vytvoří migraci |
+| `dotnet ef database update` | Aplikuje migrace |
+| `dotnet ef migrations remove` | Odstraní poslední migraci |
+| `dotnet ef migrations script` | Vygeneruje SQL skript |
+| `dotnet ef database drop` | Smaže databázi |
+| `dotnet ef dbcontext list` | Seznam DbContext tříd |
+
+#### **Databázové soubory**
+| Soubor | Umístění | Obsah |
+|--------|----------|-------|
+| `.mdf` | `C:\Users\<username>\` | Tabulky, data, indexy |
+| `.ldf` | `C:\Users\<username>\` | Transaction log |
+
+#### **SQL příkazy pro inspekci**
+| Příkaz | Účel |
+|--------|------|
+| `SELECT * FROM __EFMigrationsHistory` | Aplikované migrace |
+| `EXEC sp_help 'Students'` | Struktura tabulky |
+| `sp_spaceused 'Students'` | Velikost tabulky |
+| `SELECT @@VERSION` | Verze SQL Serveru |
+
+---
+
+## Kapitola 8: XAML a MainWindow - UI struktura
+
+### 8.1 Co je XAML?
 
 **XAML** (eXtensible Application Markup Language) je **značkovací jazyk** pro definici uživatelského rozhraní.
 
@@ -1143,7 +2942,7 @@ public MainWindow()
 - XAML vytváří .NET objekty
 - HTML vytváří DOM elementy
 
-### 7.2 Struktura MainWindow.xaml
+### 8.2 Struktura MainWindow.xaml
 
 #### **Root element - Window**
 
@@ -1161,7 +2960,7 @@ public MainWindow()
         Width="800">
 ```
 
-### 7.3 XML Namespaces - Detailní vysvětlení
+### 8.3 XML Namespaces - Detailní vysvětlení
 
 #### **x:Class** - Propojení s C# třídou
 
@@ -1300,7 +3099,7 @@ xmlns:sys="clr-namespace:System;assembly=System.Runtime"
 
 - Vytváří pole integerů (1, 2, 3) pro ComboBox
 
-### 7.4 Window atributy
+### 8.4 Window atributy
 
 ```xml
 Title="MainWindow" 
@@ -1322,7 +3121,7 @@ ResizeMode="CanMinimize"          <!-- Povolit pouze minimalizaci -->
 Icon="app_icon.ico"               <!-- Ikona aplikace -->
 ```
 
-### 7.5 Layout - Grid
+### 8.5 Layout - Grid
 
 ```xml
 <Grid Margin="12">
@@ -1378,7 +3177,7 @@ Pokud máme výšku okna 450px:
 <Grid Grid.Row="2" />              <!-- Třetí řádek -->
 ```
 
-### 7.6 DataGrid - Zobrazení dat
+### 8.6 DataGrid - Zobrazení dat
 
 ```xml
 <DataGrid x:Name="StudentsGrid" 
@@ -1410,7 +3209,7 @@ Pokud máme výšku okna 450px:
 - `Binding` - Propojení s property (viz další sekce)
 - `Width="*"` - Proporcionální šířka
 
-### 7.7 Data Binding - Detailní vysvětlení
+### 8.7 Data Binding - Detailní vysvětlení
 
 ```xml
 Binding="{Binding FirstName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -1472,7 +3271,7 @@ Určuje, **kdy** se aktualizují zdrojová data.
 <TextBox Text="{Binding FirstName}" />
 ```
 
-### 7.8 DataGridComboBoxColumn
+### 8.8 DataGridComboBoxColumn
 
 ```xml
 <DataGridComboBoxColumn Header="Ročník" 
@@ -1519,7 +3318,7 @@ SelectedItemBinding="{Binding Year, Mode=TwoWay, UpdateSourceTrigger=PropertyCha
 var years = new int[] { 1, 2, 3, 4, 5, 6 };
 ```
 
-### 7.9 StringFormat - Formátování textu
+### 8.9 StringFormat - Formátování textu
 
 ```xml
 <DataGridTextColumn Header="Vytvořeno" 
@@ -1559,7 +3358,7 @@ StringFormat={}{0:P}          <!-- 12.34% -->
 StringFormat={}{0:F2}         <!-- 123.45 -->
 ```
 
-### 7.10 GridSplitter - Změna velikosti
+### 8.10 GridSplitter - Změna velikosti
 
 ```xml
 <GridSplitter Grid.Row="1" 
@@ -1573,7 +3372,7 @@ StringFormat={}{0:F2}         <!-- 123.45 -->
 - Umožňuje uživateli **měnit velikost** řádků/sloupců
 - Táhnutím myší můžete zvětšit/zmenšit DataGrid
 
-### 📋 Shrnutí kapitoly 7
+### 📋 Shrnutí kapitoly 8
 - XAML je značkovací jazyk pro UI definici
 - `xmlns` definuje XML namespaces
 - `x:Class` propojuje XAML s C# třídou
@@ -1594,9 +3393,9 @@ StringFormat={}{0:F2}         <!-- 123.45 -->
 
 ---
 
-## Kapitola 8: Code-behind - MainWindow.xaml.cs
+## Kapitola 9: Code-behind - MainWindow.xaml.cs
 
-### 8.1 Struktura MainWindow.xaml.cs
+### 9.1 Struktura MainWindow.xaml.cs
 
 ```csharp
 namespace WPF_Aplikace_s_db
@@ -1612,7 +3411,7 @@ namespace WPF_Aplikace_s_db
 }
 ```
 
-### 8.2 Fieldy (proměnné třídy)
+### 9.2 Fieldy (proměnné třídy)
 
 #### **StudentContext _db**
 
@@ -1686,7 +3485,7 @@ _studentsView.SortDescriptions.Add(new SortDescription(nameof(Student.Id), ListS
 
 - Řadí studenty podle `Id` vzestupně
 
-### 8.3 Konstruktor MainWindow
+### 9.3 Konstruktor MainWindow
 
 ```csharp
 public MainWindow()
@@ -1794,7 +3593,7 @@ StudentsGrid.ItemsSource = _studentsView;
 - Propojí DataGrid s kolekcí studentů
 - DataGrid zobrazí všechny studenty
 
-### 8.4 OnClosed - Dispose DbContext
+### 9.4 OnClosed - Dispose DbContext
 
 ```csharp
 protected override void OnClosed(EventArgs e)
@@ -1824,7 +3623,7 @@ protected override void OnClosed(EventArgs e)
 }
 ```
 
-### 8.5 BtnAddStudent_Click - Přidání studenta
+### 9.5 BtnAddStudent_Click - Přidání studenta
 
 ```csharp
 private void BtnAddStudent_Click(object sender, RoutedEventArgs e)
@@ -1953,7 +3752,7 @@ TxtFirstName.Text = TxtLastName.Text = TxtEmail.Text = TxtYear.Text = string.Emp
 - Vymaže všechny TextBoxy
 - Připraveno pro přidání dalšího studenta
 
-### 8.6 BtnSave_Click - Uložení změn
+### 9.6 BtnSave_Click - Uložení změn
 
 ```csharp
 private void BtnSave_Click(object sender, RoutedEventArgs e)
@@ -2036,7 +3835,7 @@ student.FirstName = "Petr";    // EF Core si pamatuje původní hodnotu ("Jan")
 _db.SaveChanges();              // Vygeneruje: UPDATE Students SET FirstName='Petr' WHERE Id=1
 ```
 
-### 8.7 BtnDeleteSelected_Click - Smazání studenta
+### 9.7 BtnDeleteSelected_Click - Smazání studenta
 
 ```csharp
 private void BtnDeleteSelected_Click(object sender, RoutedEventArgs e)
@@ -2084,7 +3883,7 @@ _students.Remove(selected);
 - Odstraní studenta z `ObservableCollection`
 - DataGrid se automaticky aktualizuje (jeden řádek zmizí)
 
-### 📋 Shrnutí kapitoly 8
+### 📋 Shrnutí kapitoly 9
 - `ObservableCollection` automaticky notifikuje UI o změnách
 - `ICollectionView` poskytuje řazení, filtrování a grouping
 - `InitializeComponent()` načte XAML (musí být první v konstruktoru)
@@ -2105,9 +3904,9 @@ _students.Remove(selected);
 
 ---
 
-## Kapitola 9: Spuštění a testování aplikace
+## Kapitola 10: Spuštění a testování aplikace
 
-### 9.1 Build a spuštění
+### 10.1 Build a spuštění
 
 #### **Build projektu**
 
@@ -2133,7 +3932,7 @@ _students.Remove(selected);
    - Rychlejší start
    - Nelze debugovat
 
-### 9.2 První spuštění - Co se stane?
+### 10.2 První spuštění - Co se stane?
 
 #### **Krok 1: Vytvoření databáze**
 
@@ -2173,7 +3972,7 @@ SeedIfEmpty();
 - Načte všechny studenty z databáze
 - Zobrazí je v DataGridu
 
-### 9.3 Testovací scénáře
+### 10.3 Testovací scénáře
 
 #### **Test 1: Zobrazení dat**
 
@@ -2268,7 +4067,7 @@ SELECT * FROM Students WHERE FirstName = 'Martin'
 **Poznámka:**
 - V produkční aplikaci byste měli přidat **UI validaci**
 
-### 9.4 Debugování
+### 10.4 Debugování
 
 #### **Breakpointy**
 
@@ -2325,7 +4124,7 @@ firstName = "Test"
 1. Otevřete Watch okno: **Debug → Windows → Watch → Watch 1**
 2. Zadejte výraz (např. `_students.Count`)
 
-### 9.5 SQL Server Management Studio (SSMS) - Prohlížení DB
+### 10.5 SQL Server Management Studio (SSMS) - Prohlížení DB
 
 #### **Připojení k LocalDB**
 
@@ -2370,7 +4169,7 @@ SELECT * FROM Students
 WHERE CAST(CreatedAt AS DATE) = CAST(GETDATE() AS DATE)
 ```
 
-### 9.6 Běžné chyby a řešení
+### 10.6 Běžné chyby a řešení
 
 #### **Chyba: "A network-related or instance-specific error occurred"**
 
@@ -2424,7 +4223,7 @@ _db.SaveChanges();
 // Nebo v BtnSave_Click
 ```
 
-### 📋 Shrnutí kapitoly 9
+### 📋 Shrnutí kapitoly 10
 - Build: Ctrl + Shift + B, Spuštění: F5 (debug) nebo Ctrl + F5
 - První spuštění vytvoří databázi a seeduje data
 - Testujte všechny CRUD operace (Create, Read, Update, Delete)
@@ -2443,9 +4242,9 @@ _db.SaveChanges();
 
 ---
 
-## Kapitola 10: Databázové migrace a pokročilé koncepty
+## Kapitola 11: Pokročilé koncepty a best practices
 
-### 10.1 Co jsou migrace?
+### 11.1 Co jsou migrace?
 
 **Migrace** = Verzování databázového schématu.
 
@@ -2454,7 +4253,7 @@ _db.SaveChanges();
 - Každá změna schématu = commit
 - Historie všech změn
 
-### 10.2 EnsureCreated vs Migrace
+### 11.2 EnsureCreated vs Migrace
 
 #### **EnsureCreated() - Pro prototypování**
 
@@ -2489,7 +4288,7 @@ Update-Database
 - ❌ Komplexnější
 - ❌ Vyžaduje učení
 
-### 10.3 Přechod z EnsureCreated na migrace
+### 11.3 Přechod z EnsureCreated na migrace
 
 **⚠️ DŮLEŽITÉ:** EnsureCreated a migrace se **vylučují**!
 
@@ -2525,7 +4324,7 @@ sqllocaldb create MSSQLLocalDB
 sqllocaldb start MSSQLLocalDB
 ```
 
-### 10.4 Vytvoření první migrace
+### 11.4 Vytvoření první migrace
 
 #### **Otevřete Package Manager Console**
 
@@ -2587,7 +4386,7 @@ public partial class InitialCreate : Migration
 **Down() metoda:**
 - Vrátí změny zpět (smaže tabulku)
 
-### 10.5 Aplikace migrace
+### 11.5 Aplikace migrace
 
 ```powershell
 Update-Database
@@ -2604,7 +4403,7 @@ Update-Database
 - Tabulka `Students` je vytvořena
 - Tabulka `__EFMigrationsHistory` obsahuje záznam o migraci
 
-### 10.6 Přidání nové property - Příklad migrace
+### 11.6 Přidání nové property - Příklad migrace
 
 #### **Scénář: Přidat telefonní číslo**
 
@@ -2661,7 +4460,7 @@ Update-Database
 - Tabulka `Students` má nový sloupec `PhoneNumber`
 - Existující data mají `PhoneNumber = ''` (defaultValue)
 
-### 10.7 Rollback migrace
+### 11.7 Rollback migrace
 
 #### **Vrátit se o 1 migraci zpět**
 
@@ -2687,7 +4486,7 @@ Remove-Migration
 
 - **⚠️ POZOR:** Funguje pouze pokud migrace ještě nebyla aplikována!
 
-### 10.8 Migrační příkazy - Reference
+### 11.8 Migrační příkazy - Reference
 
 | Příkaz | Popis |
 |--------|-------|
@@ -2699,7 +4498,7 @@ Remove-Migration
 | `Drop-Database` | Smaže databázi |
 | `Get-Migration` | Zobrazí seznam migrací |
 
-### 10.9 Pokročilé: Fluent API
+### 11.9 Pokročilé: Fluent API
 
 **Alternativa k Data Annotations:**
 
@@ -2739,7 +4538,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 - ✅ Oddělení persistence logiky od entity
 - ✅ Lepší pro komplexní scénáře
 
-### 10.10 Best Practices - Migrace
+### 11.10 Best Practices - Migrace
 
 #### ✅ DOPORUČENO
 
@@ -2779,7 +4578,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 3. **Kombinování EnsureCreated a migrací**
    - Vyberte si jeden přístup
 
-### 📋 Shrnutí kapitoly 10
+### 📋 Shrnutí kapitoly 11
 - Migrace = verzování databázového schématu
 - `Add-Migration` vytvoří migraci
 - `Update-Database` aplikuje migrace
