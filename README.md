@@ -1,18 +1,122 @@
 # WPF Aplikace s Entity Framework Core - Kompletní didaktický návod
 
 ## Obsah
-1. [Úvod do projektu](#kapitola-1-úvod-do-projektu)
-2. [Příprava prostředí a vytvoření projektu](#kapitola-2-příprava-prostředí-a-vytvoření-projektu)
-3. [Instalace NuGet balíčků](#kapitola-3-instalace-nuget-balíčků)
-4. [Vytvoření struktury dat - Student entita](#kapitola-4-vytvoření-struktury-dat---student-entita)
-5. [Databázový kontext - StudentContext](#kapitola-5-databázový-kontext---studentcontext)
-6. [Seedování dat](#kapitola-6-seedování-dat)
-7. [Databázové migrace - Teorie a praxe](#kapitola-7-databázové-migrace---teorie-a-praxe)
-8. [XAML a MainWindow - UI struktura](#kapitola-8-xaml-a-mainwindow---ui-struktura)
-9. [Code-behind - MainWindow.xaml.cs](#kapitola-9-code-behind---mainwindowxamlcs)
-10. [Spuštění a testování aplikace](#kapitola-10-spuštění-a-testování-aplikace)
-11. [Pokročilé koncepty a best practices](#kapitola-11-pokročilé-koncepty-a-best-practices)
-12. [Přílohy a užitečné odkazy](#přílohy)
+
+### 1. [Úvod do projektu](#kapitola-1-úvod-do-projektu)
+- 1.1 Co je WPF?
+- 1.2 Architektura tohoto projektu
+- 1.3 Co se naučíte
+
+### 2. [Příprava prostředí a vytvoření projektu](#kapitola-2-příprava-prostředí-a-vytvoření-projektu)
+- 2.1 Požadavky
+- 2.2 Vytvoření nového WPF projektu
+- 2.3 Struktura vytvořeného projektu
+- 2.4 Porozumění základním souborům
+
+### 3. [Instalace NuGet balíčků](#kapitola-3-instalace-nuget-balíčků)
+- 3.1 Co jsou NuGet balíčky?
+- 3.2 Jaké balíčky budeme potřebovat?
+- 3.3 Instalace NuGet balíčků
+- 3.4 Ověření instalace
+- 3.5 Co jednotlivé balíčky dělají?
+
+### 4. [Vytvoření struktury dat - Student entita](#kapitola-4-vytvoření-struktury-dat---student-entita)
+- 4.1 Vytvoření složky Data
+- 4.2 Vytvoření třídy Student
+- 4.3 Implementace třídy Student
+- 4.4 Detailní vysvětlení kódu
+- 4.5 Databázové atributy (Data Annotations)
+- 4.6 Mapování na databázovou tabulku
+- 4.7 Další užitečné atributy
+
+### 5. [Databázový kontext - StudentContext](#kapitola-5-databázový-kontext---studentcontext)
+- 5.1 Co je DbContext?
+- 5.2 Vytvoření třídy StudentContext
+- 5.3 Implementace StudentContext
+- 5.4 Detailní vysvětlení kódu
+- 5.5 OnConfiguring - Konfigurace připojení
+- 5.6 Connection String - Detailní rozbor
+- 5.7 Kam se databáze ukládá?
+- 5.8 Proč se databáze nepřenese?
+- 5.9 EnsureCreatedAndSeed - Vytvoření DB
+
+### 6. [Seedování dat](#kapitola-6-seedování-dat)
+- 6.1 Co je seedování?
+- 6.2 Implementace seedování
+- 6.3 Detailní vysvětlení
+- 6.4 Pokročilé seedování
+- 6.5 Best practices pro seedování
+- 6.6 Kdy se seed spouští?
+
+### 7. [Databázové migrace - Teorie a praxe](#kapitola-7-databázové-migrace---teorie-a-praxe)
+- 7.1 Co jsou databázové migrace?
+- 7.2 EnsureCreated vs Migrace - Zásadní rozdíl
+- 7.3 NuGet balíčky pro migrace - Detailní rozbor
+- 7.4 Jak migrace fungují - Pod pokličkou
+- 7.5 Cesta dat z kódu do databáze - Vizualizace
+- 7.6 Fyzické umístění databáze - Detailní průvodce
+- 7.7 Řešení problému přenositelnosti
+- 7.8 Migrační příkazy - Kompletní reference
+- 7.9 .NET CLI příkazy - Alternativa k PMC
+- 7.10 Praktický workflow - Krok za krokem
+- 7.11 Rollback migrace - Vrácení změn
+- 7.12 Běžné chyby při migraci
+- 7.13 Pokročilé migrace - Příklady
+- 7.14 Data seeding v migraci
+- 7.15 Migrace v týmovém prostředí
+- 7.16 Connection String a cesta dat - Kompletní tok
+- 7.17 Detailní popis datových souborů
+- 7.18 Migrace v praxi - Kompletní příklad
+- 7.19 Migrace pro přechod z EnsureCreated
+- 7.20 Tipy a best practices pro migrace
+
+### 8. [XAML a MainWindow - UI struktura](#kapitola-8-xaml-a-mainwindow---ui-struktura)
+- 8.1 Co je XAML?
+- 8.2 Struktura MainWindow.xaml
+- 8.3 XML Namespaces - Detailní vysvětlení
+- 8.4 Window atributy
+- 8.5 Layout - Grid
+- 8.6 DataGrid - Zobrazení dat
+- 8.7 Data Binding - Detailní vysvětlení
+- 8.8 DataGridComboBoxColumn
+- 8.9 StringFormat - Formátování textu
+- 8.10 GridSplitter - Změna velikosti
+
+### 9. [Code-behind - MainWindow.xaml.cs](#kapitola-9-code-behind---mainwindowxamlcs)
+- 9.1 Struktura MainWindow.xaml.cs
+- 9.2 Fieldy (proměnné třídy)
+- 9.3 Konstruktor MainWindow
+- 9.4 OnClosed - Dispose DbContext
+- 9.5 BtnAddStudent_Click - Přidání studenta
+- 9.6 BtnSave_Click - Uložení změn
+- 9.7 BtnDeleteSelected_Click - Smazání studenta
+
+### 10. [Spuštění a testování aplikace](#kapitola-10-spuštění-a-testování-aplikace)
+- 10.1 Build a spuštění
+- 10.2 První spuštění - Co se stane?
+- 10.3 Testovací scénáře
+- 10.4 Debugování
+- 10.5 SQL Server Management Studio (SSMS) - Prohlížení DB
+- 10.6 Běžné chyby a řešení
+
+### 11. [Pokročilé koncepty a best practices](#kapitola-11-pokročilé-koncepty-a-best-practices)
+- 11.1 Co jsou migrace?
+- 11.2 EnsureCreated vs Migrace
+- 11.3 Přechod z EnsureCreated na migrace
+- 11.4 Vytvoření první migrace
+- 11.5 Aplikace migrace
+- 11.6 Přidání nové property - Příklad migrace
+- 11.7 Rollback migrace
+- 11.8 Migrační příkazy - Reference
+- 11.9 Pokročilé: Fluent API
+- 11.10 Best Practices - Migrace
+
+### 12. [Přílohy a užitečné odkazy](#přílohy)
+- A. Architektonické vzory - MVVM
+- B. Connection String - Všechny možnosti
+- C. Užitečné NuGet balíčky
+- D. Klávesové zkratky Visual Studio
+- E. Další zdroje
 
 ---
 
